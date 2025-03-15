@@ -4,6 +4,7 @@ import { uploadOnCloudinary } from "../utils/Cloudnary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 // import { errorResponse } from "../utils/errorResponse.js";
 import { errorResponse } from "../utils/response.js";
+import jwt from "jsonwebtoken";
 
 const generateAccesTokenAndRefereshToken = async (useId) => {
   try {
@@ -14,7 +15,7 @@ const generateAccesTokenAndRefereshToken = async (useId) => {
     await user.save({ validateBeforeSave: false });
     return { refreshToken, accessToken };
   } catch (error) {
-    return res.status(500).json({ error: "Server error" });
+    // return res.status(500).json({ error: "Server error" });
   }
 };
 const registerUser = AsynHandler(async (req, res) => {
@@ -105,6 +106,30 @@ const logoutUser = AsynHandler(async (req, res) => {
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out"));
 });
+const GetRefreshAndAccessToken = AsynHandler(async (req, res) => {
+  let options = {
+    httpOnly: true,
+    secure: true,
+  };
+  const inComingRefreshToken = req.cookies?.token || res.body?.refreshToken;
+  try {
+    const decodedToken = jwt.verify(
+      inComingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+    const user = User.findById(decodedToken._id);
+    if (!user) {
+      return res.status(404).json({ error: "invalid token" });
+    }
+    const { refreshToken, accessToken } =
+      await generateAccesTokenAndRefereshToken(req.user?._id);
+    res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
+      .json(new ApiResponse());
+  } catch (error) {}
+});
 const loginuser = AsynHandler(async (req, res) => {
   const { email, username, password } = req.body;
   console.log(req.body);
@@ -140,9 +165,75 @@ const loginuser = AsynHandler(async (req, res) => {
     .json(
       new ApiResponse(
         200,
-        { user: logdinUser, refreshToken, accessToken },
-        "user is successfully login"
+        { accessToken: accessToken, refreshToken },
+        "Access token is refreshed"
       )
     );
 });
-export { registerUser, loginuser, logoutUser };
+const ChangePassword = AsynHandler(async (req, res) => {
+  const { newpassword, oldPassword } = res.body;
+  const user = await User.findById(req.user._id);
+  const isPasswordCorrect = user.isPasswordCorrect(oldPassword);
+  if (!isPasswordCorrect) {
+    res.status(404).json({ message: "invalid old password" });
+  }
+  user.password = newpassword;
+  await user.save({ validateBeforeSave: false });
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "password change successfully"));
+});
+const GetCurrentUser = AsynHandler(async (req, res) => {
+  const user = req.user;
+  res.status(200).json(new ApiResponse(200), { user: user }, "current user");
+});
+const UpdateAccountDetail = AsynHandler(async (res, req) => {
+  const { fullName, username, email } = req.body;
+  if (!fullName || !email) {
+    res.status(400).json({ message: "fullname or email is required" });
+  }
+  const user = await User.findByIdAndUpdate(
+    res.user._id,
+    {
+      $set: {
+        fullName,
+        email,
+      },
+    },
+    {
+      new: true,
+    }
+  ).select("-password");
+  res
+    .status(200)
+    .json(new ApiResponse(200, { user }, "user is successfully updated"));
+});
+const UpdatedAvatar = AsynHandler(async (req, res) => {
+  const path = req.files.avatar[0].path;
+  const uploadfile = await uploadOnCloudinary(path);
+  if (!uploadfile) {
+    return res.status(400, { message: "avatar is required " });
+  }
+
+  const user = await User.findByIdAndUpdate(req.user?._id, {
+    $set: {
+      avatar: uploadfile.url,
+    },
+  }).select("-password");
+  res
+    .status(200)
+    .json(new ApiResponse(200, user, "avatar is successfully updated"));
+});
+const getUserChannelProfile = AsynHandler(async (req, res) => {
+  
+});
+export {
+  registerUser,
+  UpdateAccountDetail,
+  loginuser,
+  logoutUser,
+  GetRefreshAndAccessToken,
+  ChangePassword,
+  GetCurrentUser,
+  UpdatedAvatar,
+};
