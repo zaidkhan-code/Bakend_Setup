@@ -1,10 +1,12 @@
 import { AsynHandler } from "../utils/AsynHandler.js";
 import { User } from "../models/user.modal.js";
 import { uploadOnCloudinary } from "../utils/Cloudnary.js";
+import { Vedio } from "../models/vedio.model.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 // import { errorResponse } from "../utils/errorResponse.js";
 import { errorResponse } from "../utils/response.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 
 const generateAccesTokenAndRefereshToken = async (useId) => {
   try {
@@ -291,9 +293,47 @@ const getUserChannelProfile = AsynHandler(async (req, res) => {
       new ApiResponse(200, Channel[0], "User channel fetched successfully")
     );
 });
+const getwatchedVideos = AsynHandler(async (req, res) => {
+  const { username } = req.params;
+  const WachedHistory = await User.aggregate([
+    {
+      $match: {
+        _id: mongoose.Types.ObjectId(req.user._id),
+      },
+    },
+    {
+      $lookup: {
+        from: "vedios",
+        localField: "watchHistory",
+        foreignField: "_id",
+        as: "warchedVedios",
+        pipeline: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "owner",
+              foreignField: "_id",
+              as: "owner",
+            },
+          },
+        ],
+      },
+    },
+  ]);
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        WachedHistory[0],
+        "User watchhistory fetched successfully"
+      )
+    );
+});
 export {
   registerUser,
   UpdateAccountDetail,
+  getUserChannelProfile,
   loginuser,
   logoutUser,
   GetRefreshAndAccessToken,
