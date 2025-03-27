@@ -7,7 +7,7 @@ const UserSchema = new Schema(
       type: String,
       required: true,
       unique: true,
-      lowercase: true, 
+      lowercase: true,
       trim: true,
       index: true,
     },
@@ -26,7 +26,6 @@ const UserSchema = new Schema(
     },
     avatar: {
       type: String,
-      required: true,
     },
     coverImage: {
       type: String,
@@ -41,6 +40,10 @@ const UserSchema = new Schema(
     },
     refreshToken: {
       type: String,
+    },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
     },
   },
   { timestamps: true }

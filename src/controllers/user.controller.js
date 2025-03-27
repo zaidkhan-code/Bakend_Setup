@@ -6,6 +6,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 // import { errorResponse } from "../utils/errorResponse.js";
 import { errorResponse } from "../utils/response.js";
 import jwt from "jsonwebtoken";
+import bcrypt from "bcrypt";
 import mongoose from "mongoose";
 
 const generateAccesTokenAndRefereshToken = async (useId) => {
@@ -20,6 +21,30 @@ const generateAccesTokenAndRefereshToken = async (useId) => {
     // return res.status(500).json({ error: "Server error" });
   }
 };
+const GetRefreshAndAccessToken = AsynHandler(async (req, res) => {
+  let options = {
+    httpOnly: true,
+    secure: true,
+  };
+  const inComingRefreshToken = req.cookies?.token || res.body?.refreshToken;
+  try {
+    const decodedToken = jwt.verify(
+      inComingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    );
+    const user = User.findById(decodedToken._id);
+    if (!user) {
+      return res.status(404).json({ error: "invalid token" });
+    }
+    const { refreshToken, accessToken } =
+      await generateAccesTokenAndRefereshToken(req.user?._id);
+    res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
+      .json(new ApiResponse());
+  } catch (error) {}
+});
 const registerUser = AsynHandler(async (req, res) => {
   const { fullName, email, username, password } = req.body;
 
@@ -46,31 +71,31 @@ const registerUser = AsynHandler(async (req, res) => {
     return res.status(400).json({ error: "Username is required" });
   }
 
-  const avatarLocalPath = req.files?.avatar[0]?.path;
-  let coverImageLocalPath;
-  if (
-    req.files &&
-    Array.isArray(req.files.coverImage) &&
-    req.files.coverImage.length > 0
-  ) {
-    coverImageLocalPath = req.files.coverImage[0].path;
-  }
+  // const avatarLocalPath = req.files?.avatar[0]?.path;
+  // let coverImageLocalPath;
+  // if (
+  //   req.files &&
+  //   Array.isArray(req.files.coverImage) &&
+  //   req.files.coverImage.length > 0
+  // ) {
+  //   coverImageLocalPath = req.files.coverImage[0].path;
+  // }
 
-  if (!avatarLocalPath) {
-    return res.status(400).json({ error: "Avatar file is required" });
-  }
+  // if (!avatarLocalPath) {
+  //   return res.status(400).json({ error: "Avatar file is required" });
+  // }
 
-  const avatar = await uploadOnCloudinary(avatarLocalPath);
-  const coverImage = await uploadOnCloudinary(coverImageLocalPath);
+  // const avatar = await uploadOnCloudinary(avatarLocalPath);
+  // const coverImage = await uploadOnCloudinary(coverImageLocalPath);
 
-  if (!avatar) {
-    return res.status(500).json({ error: "Avatar file upload failed" });
-  }
+  // if (!avatar) {
+  //   return res.status(500).json({ error: "Avatar file upload failed" });
+  // }
 
   const user = await User.create({
     fullName,
-    avatar: avatar.url,
-    coverImage: coverImage?.url || "",
+    // avatar: avatar.url,
+    // coverImage: coverImage?.url || "",
     email,
     password,
     username: username?.toLowerCase(),
@@ -108,34 +133,11 @@ const logoutUser = AsynHandler(async (req, res) => {
     .clearCookie("refreshToken", options)
     .json(new ApiResponse(200, {}, "User logged Out"));
 });
-const GetRefreshAndAccessToken = AsynHandler(async (req, res) => {
-  let options = {
-    httpOnly: true,
-    secure: true,
-  };
-  const inComingRefreshToken = req.cookies?.token || res.body?.refreshToken;
-  try {
-    const decodedToken = jwt.verify(
-      inComingRefreshToken,
-      process.env.REFRESH_TOKEN_SECRET
-    );
-    const user = User.findById(decodedToken._id);
-    if (!user) {
-      return res.status(404).json({ error: "invalid token" });
-    }
-    const { refreshToken, accessToken } =
-      await generateAccesTokenAndRefereshToken(req.user?._id);
-    res
-      .status(200)
-      .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", refreshToken, options)
-      .json(new ApiResponse());
-  } catch (error) {}
-});
+
 const loginuser = AsynHandler(async (req, res) => {
   const { email, username, password } = req.body;
   console.log(req.body);
-  if (!username) {
+  if (!email) {
     return res
       .status(500)
       .json({ error: "email and user name does not be empty" });
@@ -145,7 +147,7 @@ const loginuser = AsynHandler(async (req, res) => {
   });
   console.log(user, "check user if exist");
   if (!user) {
-    return errorResponse(404, "user does not exist");
+    return res.status(500).json({ error: "user not availbale" });
   }
   const isPasswordvalid = await user.isPasswordCorrect(password);
   if (!isPasswordvalid) {
@@ -330,13 +332,81 @@ const getwatchedVideos = AsynHandler(async (req, res) => {
       )
     );
 });
+const updateUser = AsynHandler(async (req, res) => {
+  const { userId } = req.params; // Assuming userId is passed in the URL
+  const { fullName, email, username, password } = req.body;
+
+  if ([fullName, email, username].some((field) => field?.trim() === "")) {
+    return res.status(400).json({ error: "Fill every field" });
+  }
+  const user = await User.findById(userId);
+
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  // Update user details
+  user.fullName = fullName || user.fullName;
+  user.email = email || user.email;
+  user.username = username?.toLowerCase() || user.username;
+
+  // If password is provided, hash it before saving
+  if (password) {
+    const hashedPassword = await bcrypt.hash(password, 10); // Hash the new password
+    user.password = hashedPassword;
+  }
+
+  // Save the updated user
+  await user.save();
+
+  // Return the updated user without password and refreshToken
+  const updatedUser = await User.findById(user._id).select(
+    "-password -refreshToken"
+  );
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, updatedUser, "User updated successfully"));
+});
+const getAllUsers = AsynHandler(async (req, res) => {
+  let { page = 1, limit = 10 } = req.query;
+  page = parseInt(page);
+  limit = parseInt(limit);
+
+  const skip = (page - 1) * limit;
+
+  const users = await User.find().skip(skip).limit(limit);
+  const totalUsers = await User.countDocuments();
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        users,
+        totalUsers,
+        totalPages: Math.ceil(totalUsers / limit),
+        currentPage: page,
+      },
+      "Users successfully fetched"
+    )
+  );
+});
+
+// const getAllUsers = AsynHandler(async (req, res) => {
+//   const users = await User.find();
+//   return res
+//     .status(200)
+//     .json(new ApiResponse(200, users, "User is successfully fetched "));
+// });
 export {
   registerUser,
   UpdateAccountDetail,
   getUserChannelProfile,
   loginuser,
+  getAllUsers,
   logoutUser,
   GetRefreshAndAccessToken,
+  updateUser,
   ChangePassword,
   GetCurrentUser,
   UpdatedAvatar,

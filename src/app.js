@@ -5,7 +5,7 @@ import leadRoutes from "./routes/lead.routes.js";
 import cookieParser from "cookie-parser";
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN,
+    origin: "*",
   })
 );
 app.use(express.json({ limit: "20kb" }));
